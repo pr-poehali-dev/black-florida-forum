@@ -8,8 +8,11 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import Icon from '@/components/ui/icon';
 import { toast } from '@/hooks/use-toast';
+import { AuthDialog } from '@/components/AuthDialog';
 
 interface Comment {
   id: string;
@@ -41,9 +44,15 @@ interface ForumSection {
 }
 
 const Index = () => {
-  const [isAdmin] = useState(true);
+  const [user, setUser] = useState<{ name: string; isAdmin: boolean } | null>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
+  const [isEditSectionOpen, setIsEditSectionOpen] = useState(false);
+  const [isEditPostOpen, setIsEditPostOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'section' | 'post'; id: string } | null>(null);
+  
   const [selectedSection, setSelectedSection] = useState<ForumSection | null>(null);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [commentText, setCommentText] = useState('');
@@ -56,7 +65,20 @@ const Index = () => {
     color: '#0EA5E9'
   });
 
+  const [editSection, setEditSection] = useState({
+    title: '',
+    description: '',
+    author: '',
+    organization: '',
+    color: '#0EA5E9'
+  });
+
   const [newPost, setNewPost] = useState({
+    title: '',
+    content: ''
+  });
+
+  const [editPost, setEditPost] = useState({
     title: '',
     content: ''
   });
@@ -156,6 +178,18 @@ const Index = () => {
     }
   ]);
 
+  const handleLogin = (username: string, isAdmin: boolean) => {
+    setUser({ name: username, isAdmin });
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    toast({
+      title: "Выход выполнен",
+      description: "До встречи на форуме!"
+    });
+  };
+
   const handleCreateSection = () => {
     if (!newSection.title || !newSection.description || !newSection.author || !newSection.organization) {
       toast({
@@ -193,6 +227,79 @@ const Index = () => {
     });
   };
 
+  const openEditSection = (section: ForumSection) => {
+    setEditSection({
+      title: section.title,
+      description: section.description,
+      author: section.author,
+      organization: section.organization,
+      color: section.color
+    });
+    setIsEditSectionOpen(true);
+  };
+
+  const handleUpdateSection = () => {
+    if (!selectedSection || !editSection.title || !editSection.description) {
+      toast({
+        title: "Ошибка",
+        description: "Заполните все поля",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const updatedSection = {
+      ...selectedSection,
+      title: editSection.title,
+      description: editSection.description,
+      author: editSection.author,
+      organization: editSection.organization,
+      color: editSection.color
+    };
+
+    setSections(sections.map(s => s.id === selectedSection.id ? updatedSection : s));
+    setSelectedSection(updatedSection);
+    setIsEditSectionOpen(false);
+
+    toast({
+      title: "Раздел обновлен!",
+      description: "Изменения сохранены"
+    });
+  };
+
+  const confirmDelete = (type: 'section' | 'post', id: string) => {
+    setDeleteTarget({ type, id });
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDelete = () => {
+    if (!deleteTarget) return;
+
+    if (deleteTarget.type === 'section') {
+      setSections(sections.filter(s => s.id !== deleteTarget.id));
+      setSelectedSection(null);
+      toast({
+        title: "Раздел удален",
+        description: "Раздел успешно удален с форума"
+      });
+    } else if (deleteTarget.type === 'post' && selectedSection) {
+      const updatedSection = {
+        ...selectedSection,
+        posts: selectedSection.posts.filter(p => p.id !== deleteTarget.id)
+      };
+      setSections(sections.map(s => s.id === selectedSection.id ? updatedSection : s));
+      setSelectedSection(updatedSection);
+      setSelectedPost(null);
+      toast({
+        title: "Пост удален",
+        description: "Пост успешно удален"
+      });
+    }
+
+    setDeleteConfirmOpen(false);
+    setDeleteTarget(null);
+  };
+
   const handleCreatePost = () => {
     if (!selectedSection || !newPost.title || !newPost.content) {
       toast({
@@ -207,24 +314,20 @@ const Index = () => {
       id: Date.now().toString(),
       title: newPost.title,
       content: newPost.content,
-      author: selectedSection.author,
+      author: user?.name || selectedSection.author,
       timestamp: 'только что',
       views: 0,
       comments: []
     };
 
-    setSections(sections.map(s => 
-      s.id === selectedSection.id 
-        ? { ...s, posts: [post, ...s.posts], lastActivity: 'только что' }
-        : s
-    ));
-
-    setSelectedSection({
+    const updatedSection = {
       ...selectedSection,
       posts: [post, ...selectedSection.posts],
       lastActivity: 'только что'
-    });
+    };
 
+    setSections(sections.map(s => s.id === selectedSection.id ? updatedSection : s));
+    setSelectedSection(updatedSection);
     setIsCreatePostOpen(false);
     setNewPost({ title: '', content: '' });
 
@@ -234,15 +337,62 @@ const Index = () => {
     });
   };
 
+  const openEditPost = (post: Post) => {
+    setEditPost({
+      title: post.title,
+      content: post.content
+    });
+    setIsEditPostOpen(true);
+  };
+
+  const handleUpdatePost = () => {
+    if (!selectedPost || !selectedSection || !editPost.title || !editPost.content) {
+      toast({
+        title: "Ошибка",
+        description: "Заполните все поля",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const updatedPost = {
+      ...selectedPost,
+      title: editPost.title,
+      content: editPost.content
+    };
+
+    const updatedSection = {
+      ...selectedSection,
+      posts: selectedSection.posts.map(p => p.id === selectedPost.id ? updatedPost : p)
+    };
+
+    setSections(sections.map(s => s.id === selectedSection.id ? updatedSection : s));
+    setSelectedSection(updatedSection);
+    setSelectedPost(updatedPost);
+    setIsEditPostOpen(false);
+
+    toast({
+      title: "Пост обновлен!",
+      description: "Изменения сохранены"
+    });
+  };
+
   const handleAddComment = () => {
-    if (!commentText.trim() || !selectedPost || !selectedSection) return;
+    if (!commentText.trim() || !selectedPost || !selectedSection || !user) {
+      toast({
+        title: "Ошибка",
+        description: "Войдите в аккаунт, чтобы комментировать",
+        variant: "destructive"
+      });
+      return;
+    }
 
     const comment: Comment = {
       id: Date.now().toString(),
-      author: 'Игрок',
+      author: user.name,
       content: commentText,
       timestamp: 'только что',
-      avatar: 'И'
+      avatar: user.name[0].toUpperCase()
     };
 
     const updatedPost = {
@@ -290,6 +440,31 @@ const Index = () => {
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <header className="mb-12 text-center animate-fade-in">
+          <div className="flex justify-end mb-4">
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <Icon name="User" size={18} />
+                    {user.name}
+                    {user.isAdmin && <Badge variant="secondary" className="ml-1">Admin</Badge>}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleLogout}>
+                    <Icon name="LogOut" size={16} className="mr-2" />
+                    Выйти
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button onClick={() => setIsAuthOpen(true)} variant="outline" className="gap-2">
+                <Icon name="LogIn" size={18} />
+                Войти
+              </Button>
+            )}
+          </div>
+
           <div className="inline-block mb-4">
             <h1 className="text-6xl font-bold bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent mb-2">
               BLACK FLORIDA
@@ -307,7 +482,7 @@ const Index = () => {
                 <h2 className="text-3xl font-bold">Разделы организаций</h2>
               </div>
               
-              {isAdmin && (
+              {user?.isAdmin && (
                 <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
                   <DialogTrigger asChild>
                     <Button className="bg-gradient-to-r from-primary to-secondary hover:opacity-90 transition-all duration-300 hover:scale-105">
@@ -398,14 +573,13 @@ const Index = () => {
               {sections.map((section, index) => (
                 <Card 
                   key={section.id}
-                  className="group cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl border-border bg-card/50 backdrop-blur-sm overflow-hidden"
+                  className="group transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl border-border bg-card/50 backdrop-blur-sm overflow-hidden"
                   style={{ 
                     animationDelay: `${index * 100}ms`,
                     borderLeft: `4px solid ${section.color}`
                   }}
-                  onClick={() => openSectionPosts(section)}
                 >
-                  <CardHeader>
+                  <CardHeader className="cursor-pointer" onClick={() => openSectionPosts(section)}>
                     <div className="flex justify-between items-start gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
@@ -419,21 +593,52 @@ const Index = () => {
                         </div>
                         <CardDescription className="text-base">{section.description}</CardDescription>
                       </div>
-                      <Badge 
-                        variant="secondary" 
-                        className="text-sm px-3 py-1"
-                        style={{ 
-                          backgroundColor: `${section.color}20`,
-                          color: section.color,
-                          borderColor: section.color
-                        }}
-                      >
-                        <Icon name="Users" size={14} className="mr-1" />
-                        {section.organization}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge 
+                          variant="secondary" 
+                          className="text-sm px-3 py-1"
+                          style={{ 
+                            backgroundColor: `${section.color}20`,
+                            color: section.color,
+                            borderColor: section.color
+                          }}
+                        >
+                          <Icon name="Users" size={14} className="mr-1" />
+                          {section.organization}
+                        </Badge>
+                        {user?.isAdmin && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Icon name="MoreVertical" size={18} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedSection(section);
+                                openEditSection(section);
+                              }}>
+                                <Icon name="Edit" size={16} className="mr-2" />
+                                Редактировать
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  confirmDelete('section', section.id);
+                                }}
+                                className="text-destructive"
+                              >
+                                <Icon name="Trash2" size={16} className="mr-2" />
+                                Удалить
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="cursor-pointer" onClick={() => openSectionPosts(section)}>
                     <div className="flex justify-between items-center text-sm text-muted-foreground">
                       <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2">
@@ -462,7 +667,7 @@ const Index = () => {
                 <Icon name="ArrowLeft" size={20} />
                 Назад к разделам
               </Button>
-              {isAdmin && (
+              {user?.isAdmin && (
                 <Dialog open={isCreatePostOpen} onOpenChange={setIsCreatePostOpen}>
                   <DialogTrigger asChild>
                     <Button className="bg-gradient-to-r from-primary to-secondary">
@@ -535,14 +740,46 @@ const Index = () => {
                 selectedSection.posts.map((post) => (
                   <Card 
                     key={post.id}
-                    className="cursor-pointer transition-all duration-300 hover:scale-[1.01] hover:shadow-xl border-border bg-card/50"
-                    onClick={() => openPost(post)}
+                    className="transition-all duration-300 hover:scale-[1.01] hover:shadow-xl border-border bg-card/50"
                   >
-                    <CardHeader>
-                      <CardTitle className="text-xl">{post.title}</CardTitle>
-                      <CardDescription className="text-base line-clamp-2">{post.content}</CardDescription>
+                    <CardHeader className="cursor-pointer" onClick={() => openPost(post)}>
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <CardTitle className="text-xl">{post.title}</CardTitle>
+                          <CardDescription className="text-base line-clamp-2">{post.content}</CardDescription>
+                        </div>
+                        {user?.isAdmin && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Icon name="MoreVertical" size={18} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedPost(post);
+                                openEditPost(post);
+                              }}>
+                                <Icon name="Edit" size={16} className="mr-2" />
+                                Редактировать
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  confirmDelete('post', post.id);
+                                }}
+                                className="text-destructive"
+                              >
+                                <Icon name="Trash2" size={16} className="mr-2" />
+                                Удалить
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="cursor-pointer" onClick={() => openPost(post)}>
                       <div className="flex justify-between items-center text-sm text-muted-foreground">
                         <div className="flex items-center gap-4">
                           <div className="flex items-center gap-2">
@@ -613,15 +850,16 @@ const Index = () => {
                   
                   <div className="bg-muted/50 rounded-lg p-4 mb-6">
                     <Textarea
-                      placeholder="Напишите комментарий..."
+                      placeholder={user ? "Напишите комментарий..." : "Войдите, чтобы комментировать"}
                       value={commentText}
                       onChange={(e) => setCommentText(e.target.value)}
                       className="mb-3 bg-background border-border"
                       rows={3}
+                      disabled={!user}
                     />
                     <Button 
                       onClick={handleAddComment}
-                      disabled={!commentText.trim()}
+                      disabled={!commentText.trim() || !user}
                       className="bg-gradient-to-r from-primary to-secondary"
                     >
                       <Icon name="Send" size={16} className="mr-2" />
@@ -661,6 +899,144 @@ const Index = () => {
             </Card>
           </div>
         )}
+
+        <AuthDialog 
+          open={isAuthOpen} 
+          onOpenChange={setIsAuthOpen} 
+          onLogin={handleLogin}
+        />
+
+        <Dialog open={isEditSectionOpen} onOpenChange={setIsEditSectionOpen}>
+          <DialogContent className="sm:max-w-[500px] border-border bg-card">
+            <DialogHeader>
+              <DialogTitle className="text-2xl">Редактировать раздел</DialogTitle>
+              <DialogDescription>
+                Внесите изменения в раздел форума
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-title">Название раздела</Label>
+                <Input
+                  id="edit-title"
+                  value={editSection.title}
+                  onChange={(e) => setEditSection({...editSection, title: e.target.value})}
+                  className="bg-muted border-border"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-description">Описание</Label>
+                <Textarea
+                  id="edit-description"
+                  value={editSection.description}
+                  onChange={(e) => setEditSection({...editSection, description: e.target.value})}
+                  className="bg-muted border-border min-h-[100px]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-author">Лидер</Label>
+                  <Input
+                    id="edit-author"
+                    value={editSection.author}
+                    onChange={(e) => setEditSection({...editSection, author: e.target.value})}
+                    className="bg-muted border-border"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-organization">Организация</Label>
+                  <Input
+                    id="edit-organization"
+                    value={editSection.organization}
+                    onChange={(e) => setEditSection({...editSection, organization: e.target.value})}
+                    className="bg-muted border-border"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-color">Цвет акцента</Label>
+                <div className="flex gap-2">
+                  {['#0EA5E9', '#8B5CF6', '#F97316', '#10B981', '#EF4444'].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setEditSection({...editSection, color})}
+                      className={`w-10 h-10 rounded-full transition-all duration-200 ${
+                        editSection.color === color ? 'ring-2 ring-offset-2 ring-offset-card ring-primary scale-110' : 'hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsEditSectionOpen(false)}>
+                Отмена
+              </Button>
+              <Button onClick={handleUpdateSection} className="bg-gradient-to-r from-primary to-secondary">
+                Сохранить
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isEditPostOpen} onOpenChange={setIsEditPostOpen}>
+          <DialogContent className="sm:max-w-[600px] border-border bg-card">
+            <DialogHeader>
+              <DialogTitle className="text-2xl">Редактировать пост</DialogTitle>
+              <DialogDescription>
+                Внесите изменения в пост
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-post-title">Заголовок</Label>
+                <Input
+                  id="edit-post-title"
+                  value={editPost.title}
+                  onChange={(e) => setEditPost({...editPost, title: e.target.value})}
+                  className="bg-muted border-border"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-post-content">Содержание</Label>
+                <Textarea
+                  id="edit-post-content"
+                  value={editPost.content}
+                  onChange={(e) => setEditPost({...editPost, content: e.target.value})}
+                  className="bg-muted border-border min-h-[200px]"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsEditPostOpen(false)}>
+                Отмена
+              </Button>
+              <Button onClick={handleUpdatePost} className="bg-gradient-to-r from-primary to-secondary">
+                Сохранить
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <AlertDialogContent className="border-border bg-card">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Подтвердите удаление</AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteTarget?.type === 'section' 
+                  ? 'Вы уверены, что хотите удалить этот раздел? Все посты в нем будут удалены.'
+                  : 'Вы уверены, что хотите удалить этот пост? Все комментарии будут удалены.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Отмена</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Удалить
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
